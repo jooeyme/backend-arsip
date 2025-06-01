@@ -12,16 +12,47 @@ module.exports = (sequelize, DataTypes) => {
     static associate(models) {
       // define association here
       this.belongsTo(models.SuratMasuk,
-        { foreignKey: 'no_agenda', targetKey: 'no_agenda_masuk' }
+        { 
+          foreignKey: 'no_agenda', 
+          targetKey: 'no_agenda_masuk'
+        }
       );
     }
   }
   Disposisi.init({
-    no_agenda: DataTypes.STRING,
-    type_surat: DataTypes.STRING,
-    tindakan: DataTypes.STRING,
-    diteruskan: DataTypes.STRING,
+    no_agenda: {
+      type: DataTypes.STRING,
+      allowNull: false
+    },
+    type_surat: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    tindakan: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    dibuat: {
+      type: DataTypes.STRING,
+      allowNull: false
+    },
+    diteruskan: {
+      type: DataTypes.STRING,
+      allowNull: false
+    },
     ket_disposisi: DataTypes.STRING,
+    status: {
+      type: DataTypes.STRING,
+      allowNull: false
+    },
+    catatan_tindak_lanjut: DataTypes.STRING,
+    waktu_selesai: DataTypes.DATE,
+    urutan: {
+      type: DataTypes.INTEGER,
+      allowNull: false
+    },
+    waktu_dibaca: DataTypes.DATE,
+    waktu_diproses: DataTypes.DATE
   }, {
     sequelize,
     modelName: 'Disposisi',

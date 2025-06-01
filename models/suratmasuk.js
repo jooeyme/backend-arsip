@@ -2,7 +2,11 @@
 const {
   Model
 } = require('sequelize');
-const { diff } = require("deep-diff");
+const {
+  logPerubahanHook,
+  logPenghapusanHook,
+  logPenambahanHook,
+} = require('../helpers/perubahanHelper');
 
 module.exports = (sequelize, DataTypes) => {
   class SuratMasuk extends Model {
@@ -15,14 +19,29 @@ module.exports = (sequelize, DataTypes) => {
       // define association here
       this.hasMany(models.Document,
         { 
-          foreignKey: 'no_agenda_masuk', 
-          sourceKey: 'no_agenda_masuk'
+          foreignKey: 'documentId', 
+          constraints: false,
+          as: "documents",
+          scope: {
+            documentType: "SuratMasuk", 
+          }
         }
       );
 
-      this.belongsTo(models.Disposisi,
-        { foreignKey: 'no_agenda_masuk', targetKey: 'no_agenda'}
-      )
+      this.hasMany(models.Disposisi,
+        { 
+          foreignKey: 'no_agenda', 
+          sourceKey: 'no_agenda_masuk',
+          as: 'disposisi'
+
+        });
+
+      this.belongsToMany(models.User, {
+        through: 'Recipients',
+        foreignKey: 'suratMasukId',
+        otherKey: 'userId',
+        as: 'penerimaUsers'
+      });
     }
   }
   SuratMasuk.init({
@@ -31,40 +50,67 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false,
       unique: true, 
     },
-    tgl_terima: DataTypes.DATE,
-    no_surat: DataTypes.STRING,
-    tgl_surat: DataTypes.DATE,
-    perihal: DataTypes.STRING,
-    asal_surat: DataTypes.STRING,
-    keterangan: DataTypes.STRING,
-    status: DataTypes.STRING
+    tgl_terima: {
+      type: DataTypes.DATE,
+      allowNull: false,
+    },
+    no_surat: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      unique: true,
+    },
+    tgl_surat: {
+      type: DataTypes.DATE,
+      allowNull: false,
+    },
+    perihal: {
+      type: DataTypes.STRING,
+      allowNull: false
+    },
+    asal_surat: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    keterangan: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    status: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    sifat: {
+      type: DataTypes.STRING,
+      allowNull: false
+    },
+    lampiran: DataTypes.JSON,
+    jenis: {
+      type: DataTypes.STRING,
+      allowNull: false
+    },
+    penerima: {
+      type: DataTypes.STRING,
+      allowNull: false
+    },
+    tembusan: DataTypes.STRING,
+    no_folder: DataTypes.STRING
   }, {
     sequelize,
     modelName: 'SuratMasuk',
   });
 
-  SuratMasuk.addHook("beforeUpdate", async (instance, options) => {
-    const changedFields = instance.changed();
+  SuratMasuk.addHook('beforeUpdate', async (instance, options) => {
+    await logPerubahanHook(instance, options, instance.id, 'masuk', 'Perubahan Surat Masuk');
+  });
+  
+  SuratMasuk.addHook('beforeDestroy', async (instance, options) => {
+    await logPenghapusanHook(instance, options, instance.id, 'masuk', 'Penghapusan Surat Masuk');
+  });
+  
+  SuratMasuk.addHook('afterCreate', async (instance, options) => {
+    await logPenambahanHook(instance, options, instance.id, 'masuk', 'Penambahan Surat Masuk');
+  });
 
-    if (changedFields && changedFields.length === 0) return;
-      const perubahan = {};
-
-      changedFields.forEach((field) => {
-        perubahan[field] = {
-          old: instance._previousDataValues[field],
-          new: instance.dataValues[field],
-        };
-      });
-
-      const LogPerubahan = sequelize.models.LogPerubahan;
-
-      await LogPerubahan.create({
-        suratId: instance.id,
-        jenisSurat: 'masuk', // untuk SuratMasuk
-        perubahan,
-        userId: options.userId || null, // pastikan dikirim dari controller
-        keterangan: 'Perubahan data Surat Masuk',
-      });
-  })
+  
   return SuratMasuk;
 };

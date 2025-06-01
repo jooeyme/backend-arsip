@@ -4,15 +4,56 @@ const jwt = require('jsonwebtoken');
 require("dotenv").config();
 
 module.exports = {
+    canViewSuratMasuk: async(req, res, next) => {
+        const user = req.userData;      // diasumsikan sudah di-attach oleh JWT middleware
+        const id   = req.params.id;     // untuk detail
+        let surat;
+
+        try {
+            // ambil surat & daftar penerimaUsers
+            surat = await SuratMasuk.findByPk(id, {
+            include: [{ model: User, as: 'penerimaUsers', attributes: ['id'] }]
+            });
+            if (!surat) return res.status(404).json({ message: 'SuratMasuk tidak ditemukan' });
+
+            if (surat.sifat === 'rahasia') {
+                const isAdmin   = user.role === 'administrasi';
+                const isAllowed = surat.penerimaUsers.some(u => u.id === user.id);
+                if (!isAdmin && !isAllowed) {
+                    return res.status(403).json({ message: 'Akses ditolak: surat rahasia' });
+                }
+            }
+            req.suratMasuk = surat;  // simpan untuk controller
+            next();
+        } catch (e) {
+            console.error(e);
+            res.status(500).json({ message: 'Error memeriksa akses' });
+        }
+        },
+
     CreateUser: async(req, res) => {
         try{
             const {
-                name,
+                nama_lengkap,
+                username,
+                jabatan,
                 email,
                 password,
                 confirmPassword,
                 role // ["super_admin","administrasi", "KTU", "Kadep", "sekdep"]
             } = req.body;
+
+            const user = await User.findOne({
+                where: {
+                    email  
+                }
+            });
+
+            if (user) {
+                return res.status(400).json({
+                    msg: "Email sudah digunakan! coba dengan email lain."
+                });
+            }
 
             if(password !== confirmPassword) {
                 return res.status(400).json({
@@ -23,7 +64,9 @@ module.exports = {
             const hashPassword = await bcrypt.hash(password, 10);
     
             const newUser = await User.create({
-                name: name,
+                nama_lengkap: nama_lengkap,
+                username: username,
+                jabatan: jabatan,
                 email: email,
                 password: hashPassword,
                 role: role
@@ -38,6 +81,7 @@ module.exports = {
         res.status(500).json({ message: "Internal server error" });
     }
     },
+
     Login : async (req, res) =>{
         try {
             const { email, password } = req.body;
@@ -51,7 +95,9 @@ module.exports = {
                 return res.status(404).json({
                     msg: "User tidak ditemukan"
                 });
+
             const match = await bcrypt.compare( password, user.password);
+
             if(!match) 
                 return res.status(400).json({
                     msg: "Wrong Password"
@@ -59,13 +105,15 @@ module.exports = {
                 // Generate JWT token with user information
                 const payload = {
                     id: user.id,
-                    name: user.name,
+                    jabatan: user.jabatan,
+                    nama_lengkap: user.nama_lengkap,
+                    username: user.username,
                     email: user.email,
                     role: user.role,
                 };
                 const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '8h' }); // Set expiry time
                 
-            res.status(200).json({token, role: user.role, id:user.id});
+            res.status(200).json({token, role: user.role, id:user.id, username: user.username});
         } catch (error) {
             console.error(error);
             res.status(500).json({ message: "Internal server error", error: error.message });

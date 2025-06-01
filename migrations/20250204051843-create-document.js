@@ -9,25 +9,25 @@ module.exports = {
         primaryKey: true,
         type: Sequelize.INTEGER
       },
-      no_agenda_masuk: {
+      documentType: {
         type: Sequelize.STRING,
-        allowNull: true,
+        allowNull: false,
       },
-      no_agenda_keluar: {
-        type: Sequelize.STRING,
-        allowNull: true,
+      documentId: {
+        type: Sequelize.INTEGER,
+        allowNull: false,
       },
       name_doc: {
-        type: Sequelize.STRING
+        type: Sequelize.STRING,
+        allowNull: false,
       },
       type_doc: {
-        type: Sequelize.STRING
+        type: Sequelize.STRING,
+        allowNull: false,
       },
       path_doc: {
-        type: Sequelize.STRING
-      },
-      Log_id: {
-        type: Sequelize.INTEGER
+        type: Sequelize.STRING,
+        allowNull: false,
       },
       createdAt: {
         allowNull: false,

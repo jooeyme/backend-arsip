@@ -3,7 +3,7 @@ const {
   Model
 } = require('sequelize');
 module.exports = (sequelize, DataTypes) => {
-  class LogPerubahan extends Model {
+  class Review extends Model {
     /**
      * Helper method for defining associations.
      * This method is not a part of Sequelize lifecycle.
@@ -12,41 +12,35 @@ module.exports = (sequelize, DataTypes) => {
     static associate(models) {
       // define association here
       this.belongsTo(models.User,
-        { foreignKey: 'userId' }
-      )
+        { 
+          foreignKey: 'reviewerId', 
+          as: 'reviewer',
+        }
+      );
+
+      this.belongsTo(models.SuratKeluar, {
+        foreignKey: "suratId",
+        as: 'suratKeluar'
+      })
     }
   }
-  LogPerubahan.init({
+  Review.init({
     suratId: {
       type: DataTypes.INTEGER,
       allowNull: false
     },
-    jenisSurat: {
-      type: DataTypes.ENUM('masuk', 'keluar'),
-      allowNull: false
-    },
-    perubahan: {
-      type: DataTypes.JSONB,
-      allowNull: false
-    },
-    userId: {
+    reviewerId: {
       type: DataTypes.INTEGER,
       allowNull: false
     },
-    keterangan: {
-      type: DataTypes.STRING
-    },  
-    isRead: {
-      type: DataTypes.BOOLEAN,
-      defaultValue: false,
-      allowNull: false,
-    },
-    aksi: {
+    status: {
       type: DataTypes.STRING,
-    }},
-    {
-      sequelize,
-      modelName: 'LogPerubahan',
-    });
-    return LogPerubahan;
+      allowNull: false
+    },
+    komentar: DataTypes.TEXT
+  }, {
+    sequelize,
+    modelName: 'Review',
+  });
+  return Review;
 };

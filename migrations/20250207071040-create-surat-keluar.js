@@ -9,28 +9,30 @@ module.exports = {
         primaryKey: true,
         type: Sequelize.INTEGER
       },
-      no_agenda_keluar: {
+      no_surat: {
         type: Sequelize.STRING,
         allowNull: false,
         unique: true,
       },
-      no_surat: {
-        type: Sequelize.STRING
-      },
       tgl_surat: {
-        type: Sequelize.DATE
+        type: Sequelize.DATE,
+        allowNull: false,
       },
       perihal: {
-        type: Sequelize.STRING
+        type: Sequelize.STRING,
+        allowNull: false,
       },
       ditujukan: {
-        type: Sequelize.STRING
+        type: Sequelize.STRING,
+        allowNull: false,
       },
       keterangan: {
-        type: Sequelize.STRING
+        type: Sequelize.STRING,
+        allowNull: false,
       },
       status: {
-        type: Sequelize.STRING
+        type: Sequelize.STRING,
+        allowNull: false,
       },
       createdAt: {
         allowNull: false,

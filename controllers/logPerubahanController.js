@@ -37,20 +37,44 @@ module.exports = {
   }
 },
 
-addLog: async (req, res) => {
-  const { suratId, jenisSurat, perubahan, userId, keterangan } = req.body;
+// GET /log-perubahan/latest
+getLatestLogs: async (req, res) => {
   try {
-    const newLog = await LogPerubahan.create({
-      suratId,
-      jenisSurat,
-      perubahan,
-      userId,
-      keterangan,
+    const logs = await LogPerubahan.findAll({
+      where: {
+        createdAt: {
+          [Op.gte]: dayjs().subtract(1, 'day').toDate(),
+        }
+      },
+      order: [['createdAt', 'DESC']],
+      limit: 20
     });
-    res.status(201).json(newLog);
+
+    res.status(200).json(logs);
   } catch (error) {
-    res.status(500).json({ message: "Gagal membuat log", error });
+    res.status(500).json({ message: 'Failed to fetch logs' });
   }
 },
+
+markAsRead: async (req, res) => {
+  try {
+    const logId = req.params.id;
+
+    const log = await LogPerubahan.findByPk(logId);
+    if (!log) {
+      return res.status(404).json({ message: "Log not found" });
+    }
+
+    log.isRead = true;
+    await log.save();
+
+    return res.status(200).json({ message: "Log marked as read", log });
+  } catch (error) {
+    console.error("Error marking log as read:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+},
+
+
 
 }

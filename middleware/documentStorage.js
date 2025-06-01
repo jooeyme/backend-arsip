@@ -40,4 +40,7 @@ const deleteFromGoogleDrive= async(fileId) => {
   }
 }
 
-module.exports = uploadToGoogleDrive, deleteFromGoogleDrive;
+module.exports = {
+  uploadToGoogleDrive, 
+  deleteFromGoogleDrive
+};

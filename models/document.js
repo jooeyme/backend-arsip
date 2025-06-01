@@ -2,47 +2,79 @@
 const {
   Model
 } = require('sequelize');
+const { 
+  logPenambahanHook, 
+  logPerubahanHook, 
+  logPenghapusanHook } = require('../helpers/perubahanHelper');
+
 module.exports = (sequelize, DataTypes) => {
   class Document extends Model {
-    /**
-     * Helper method for defining associations.
-     * This method is not a part of Sequelize lifecycle.
-     * The `models/index` file will call this method automatically.
-     */
     static associate(models) {
       // define association here
       this.belongsTo(models.SuratMasuk,
         { 
-          foreignKey: 'no_agenda_masuk', 
-          targetKey: 'no_agenda_masuk',
+          foreignKey: 'documentId', 
+          constraints: false,
+          as: 'suratMasuk',
+          scope: {
+            documentType: "SuratMasuk",
+          },
         }
       );
 
       this.belongsTo(models.SuratKeluar,
         { 
-          foreignKey: 'no_agenda_keluar', 
-          targetKey: 'no_agenda_keluar'
+          foreignKey: 'documentId', 
+          constraints: false,
+          as: 'suratKeluar',
+          scope: {
+            documentType: "SuratKeluar",
+          },
         }
       );
 
     }
   }
   Document.init({
-    no_agenda_masuk: {
+    documentType: {
       type: DataTypes.STRING,
-      allowNull: true,
+      allowNull: false,
     },
-    no_agenda_keluar: {
+    documentId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    name_doc: {
       type: DataTypes.STRING,
-      allowNull: true,
+      allowNull: false,
     },
-    name_doc: DataTypes.STRING,
-    type_doc: DataTypes.STRING,
-    path_doc: DataTypes.STRING,
-    Log_id: DataTypes.INTEGER
+    type_doc: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    path_doc: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
   }, {
     sequelize,
     modelName: 'Document',
   });
+
+  // Hook: setelah dokumen dibuat
+  Document.addHook('afterCreate', async (instance, options) => {
+    await logPenambahanHook(instance, options, instance.documentId ,instance.documentType, 'Penambahan dokumen');
+  });
+
+  // Hook: sebelum dokumen diupdate
+  Document.addHook('beforeUpdate', async (instance, options) => {
+    await logPerubahanHook(instance, options, instance.documentId, instance.documentType, 'Perubahan dokumen');
+  });
+
+  // Hook: sebelum dokumen dihapus
+  Document.addHook('beforeDestroy', async (instance, options) => {
+    await logPenghapusanHook(instance, options, instance.documentId, instance.documentType, 'Penghapusan dokumen');
+  });
+
   return Document;
 };

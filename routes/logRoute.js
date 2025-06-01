@@ -6,6 +6,6 @@ const auth = require("../middleware/auth")
 
 
 router.get(`/all`, logPerubahan.getAllLog);
-
+router.patch(`/:id/read`, logPerubahan.markAsRead);
 
 module.exports = router;

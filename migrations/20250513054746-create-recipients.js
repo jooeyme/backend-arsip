@@ -2,35 +2,24 @@
 /** @type {import('sequelize-cli').Migration} */
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.createTable('Disposisis', {
+    await queryInterface.createTable('Recipients', {
       id: {
         allowNull: false,
         autoIncrement: true,
         primaryKey: true,
         type: Sequelize.INTEGER
       },
-      no_agenda: {
-        type: Sequelize.STRING,
+      suratMasukId: {
+        type: Sequelize.INTEGER,
         allowNull: false,
+        references: { model: 'SuratMasuks', key: 'id' },
+        onDelete: 'CASCADE'
       },
-      type_surat: {
-        type: Sequelize.STRING,
+      userId: {
+        type: Sequelize.INTEGER,
         allowNull: false,
-      },
-      tindakan: {
-        type: Sequelize.STRING,
-        allowNull: false
-      },
-      dibuat: {
-        type: Sequelize.STRING,
-        allowNull: false
-      },
-      diteruskan: {
-        type: Sequelize.STRING,
-        allowNull: false
-      },
-      ket_disposisi: {
-        type: Sequelize.STRING
+        references: { model: 'Users', key: 'id' },
+        onDelete: 'CASCADE'
       },
       createdAt: {
         allowNull: false,
@@ -41,8 +30,14 @@ module.exports = {
         type: Sequelize.DATE
       }
     });
+
+    await queryInterface.addConstraint('Recipients', {
+      fields: ['suratMasukId','userId'],
+      type: 'unique',
+      name: 'ux_suratmasuk_user'
+    });
   },
   async down(queryInterface, Sequelize) {
-    await queryInterface.dropTable('Disposisis');
+    await queryInterface.dropTable('Recipients');
   }
 };

@@ -13,8 +13,6 @@ const extractTextFromPDF = async (filePath) => {
 
         await new Promise(resolve => setTimeout(resolve, 2000));
 
-        console.log('apa isi dari path gambar:', opts)
-
         // Jalankan OCR dengan bahasa Indonesia + Inggris
         const { data } = await Tesseract.recognize(outputImagePath, "ind+eng", {
             logger: (m) => console.log(m), // Log proses OCR
