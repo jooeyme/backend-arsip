@@ -4,5 +4,6 @@ const klasifikasiSuratController = require("../controllers/klasifikasiSuratContr
 
 router.post('/new', klasifikasiSuratController.createKlasifikasi);
 router.get('/all', klasifikasiSuratController.getAllKlasifikasi);
+router.delete(`/delete/:id`, klasifikasiSuratController.deleteKlasifikasi);
 
 module.exports = router;

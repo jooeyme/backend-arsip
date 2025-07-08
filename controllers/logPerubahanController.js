@@ -3,7 +3,9 @@ const { LogPerubahan, User } = require("../models");
 module.exports = {
   getAllLog: async(req, res) => {
     try {
-        const result = await LogPerubahan.findAll();
+        const result = await LogPerubahan.findAll({
+          include: [{ model: User, attributes: ["nama_lengkap", "role"] }],
+    });
 
         if (!result) {
             return res.status(404).json({
@@ -70,7 +72,6 @@ markAsRead: async (req, res) => {
 
     return res.status(200).json({ message: "Log marked as read", log });
   } catch (error) {
-    console.error("Error marking log as read:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 },

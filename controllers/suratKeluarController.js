@@ -1,7 +1,7 @@
 const { SuratKeluar, Document, sequelize, KlasifikasiSurat, Review, User } = require('../models');
 const {uploadToGoogleDrive, deleteFromGoogleDrive} = require('../middleware/documentStorage');
 const fs = require('fs');
-const { Op } = require('sequelize');
+const { Op, UniqueConstraintError } = require('sequelize');
 const esClient = require('../config/esClient');
 const extractTextFromPDF = require('../middleware/ekstractText');
 const { Model } = require('sequelize');
@@ -67,9 +67,29 @@ module.exports = {
                         bool:{
                             should: [
                                 {
+                                    term: {
+                                        perihal: {
+                                            value: query.trim(),
+                                            boost: 5
+                                        }
+                                    }
+                                },
+                                {
+                                    prefix: {
+                                    "no_surat": {
+                                        value: query.trim().toUpperCase(),  // normalisasi jika perlu
+                                        boost: 3
+                                    }
+                                    }
+                                },
+                                {
                                     multi_match: {
                                         query: query,
-                                        fields: ["no_agenda", "name_doc", "type_doc", "content"],
+                                        fields: [
+                                            "keterangan^2", 
+                                            "ditujukan", 
+                                            "content^3"
+                                        ],
                                         type: "best_fields", // Autocomplete
                                         operator: "AND",
                                         fuzziness: "AUTO",
@@ -80,8 +100,8 @@ module.exports = {
                                     // prefix match untuk autocomplete
                                     match_phrase_prefix: {
                                         content: {
-                                        query,
-                                        max_expansions: 50
+                                            query,
+                                            max_expansions: 50
                                         }
                                     }
                                 }
@@ -94,14 +114,29 @@ module.exports = {
                         pre_tags: ["<mark>"],
                         post_tags: ["</mark>"],
                         fields: {
-                        content: { fragment_size: 100, number_of_fragments: 1 },
-                        name_doc: {}
+                            no_surat: {},
+                            perihal: {
+                                fragment_size: 80,
+                                number_of_fragments: 1
+                            },
+                            content: { 
+                                fragment_size: 100, 
+                                number_of_fragments: 1 
+                            },
+                        keterangan: {}
                         }
                     }
                 },
             });
+
+            const hits = result.hits.hits.map((hit) => ({
+                id: hit._id,
+                score: hit._score,
+                source: hit._source,
+                highlight: hit.highlight || {}
+            }));
     
-            res.status(200).json({ results: result.hits.hits });
+            res.status(200).json({ results: hits });
         } catch (error) {
             console.error(error);
             res.status(500).json({ message: "Error searching surat" });
@@ -138,8 +173,6 @@ module.exports = {
                     message: "klasifikasi surat not found"
                 });
             }
-
-            
 
             const status = 'draft'
             const kode = 'IT3.F4.1';
@@ -245,6 +278,198 @@ module.exports = {
         }
     },
 
+    uploadSuratKeluarArchived: async (req, res) => {
+    const t = await sequelize.transaction();
+
+    const files = req.files;
+    const uploadedFileIds = [];
+    const draftFile = files?.dokumen_utama?.[0];
+    const allLampiran = files?.lampiran || [];
+
+    try {
+        const lampiranNames = allLampiran.map(f => f.originalname);
+
+        const {
+        no_surat, // nomor surat diinput manual
+        tgl_surat,
+        perihal,
+        ditujukan,
+        keterangan,
+        sifat,
+        jenis,
+        tembusan,
+        no_folder
+        } = req.body;
+
+        if (!no_surat) {
+        return res.status(400).json({ message: "no_surat wajib diisi secara manual" });
+        }
+
+        const status = 'archived'; // langsung diarsipkan
+
+        const prefix = typeof no_surat === "string"
+      ? no_surat.split("/")[0]
+      : no_surat;
+
+    if (!prefix) {
+      await t.rollback();
+      return res.status(400).json({
+        message: "Format no_surat tidak valid. Harus mengandung '/' sebagai pemisah.",
+      });
+    }
+
+    // 3) Cek apakah sudah ada no_surat lain yang dimulai dengan prefix yang sama
+    const existing = await SuratKeluar.findOne({
+      where: {
+        no_surat: {
+          [Op.startsWith]: `${prefix}/`
+        }
+      },
+      transaction: t,
+      lock: t.LOCK.UPDATE, // optional: mengunci row selama transaksi
+    });
+
+    if (existing) {
+      await t.rollback();
+      return res.status(400).json({
+        message: `Nomor surat "${prefix}" sudah terdaftar (contoh: "${existing.no_surat}"). ` +
+                 `Silakan gunakan nomor surat yang berbeda.`,
+        field: "no_surat"
+      });
+    }
+
+        const surat = await SuratKeluar.create({
+        no_surat,
+        tgl_surat,
+        perihal,
+        ditujukan,
+        keterangan,
+        status,
+        sifat,
+        jenis,
+        lampiran: lampiranNames,
+        tembusan,
+        no_folder
+        }, {
+        transaction: t,
+        individualHooks: true,
+        context: { userId: req.userData.id }
+        });
+
+        if (draftFile) {
+        const fileUrl = await uploadToGoogleDrive(draftFile.path, draftFile.originalname);
+        const fileId = extractFileId(fileUrl);
+        uploadedFileIds.push(fileId);
+
+        const doc = await Document.create({
+            documentType: "SuratKeluar",
+            documentId: surat.id,
+            name_doc: draftFile.originalname,
+            type_doc: 'draft',
+            path_doc: fileUrl
+        }, {
+            transaction: t,
+            individualHooks: true,
+            context: { userId: req.userData.id }
+        });
+
+        const content = await extractTextFromPDF(draftFile.path);
+
+        await esClient.index({
+            index: "surat_keluar",
+            id: `${surat.no_surat}-${doc.id}`,
+            body: {
+            id:         surat.id.toString(),
+            no_surat:   surat.no_surat,
+            tgl_surat:  surat.tgl_surat,
+            perihal:    surat.perihal,
+            ditujukan:  surat.ditujukan,
+            keterangan: surat.keterangan,
+            status:     surat.status,
+            sifat:      surat.sifat,
+            // lampiran:    surat.lampiran,
+            jenis:      surat.jenis,
+            tembusan:   surat.tembusan,
+            no_folder:  surat.no_folder,
+            createdAt:  surat.createdAt,
+            content:    content,
+            name_doc:   doc.name_doc,
+            type_doc:   doc.type_doc,
+            path_doc:   doc.path_doc
+            }
+        });
+        }
+
+        for (const lampiran of allLampiran) {
+        const lampiranUrl = await uploadToGoogleDrive(lampiran.path, lampiran.originalname);
+        const lampId = extractFileId(lampiranUrl);
+        uploadedFileIds.push(lampId);
+
+        const doc = await surat.createDocument({
+            name_doc: lampiran.originalname,
+            type_doc: 'lampiran',
+            path_doc: lampiranUrl
+        }, {
+            transaction: t,
+            individualHooks: true,
+            context: { userId: req.userData.id }
+        });
+
+        const content = await extractTextFromPDF(lampiran.path);
+
+        await esClient.index({
+            index: "surat_keluar",
+            id: `${surat.no_surat}-${doc.id}`,
+            body: {
+            id:         surat.id.toString(),
+            no_surat:   surat.no_surat,
+            tgl_surat:  surat.tgl_surat,
+            perihal:    surat.perihal,
+            ditujukan:  surat.ditujukan,
+            keterangan: surat.keterangan,
+            status:     surat.status,
+            sifat:      surat.sifat,
+            // lampiran:   surat.lampiran,
+            jenis:      surat.jenis,
+            tembusan:   surat.tembusan,
+            no_folder:  surat.no_folder,
+            createdAt:  surat.createdAt,
+            content:    content,
+            name_doc:   doc.name_doc,
+            type_doc:   doc.type_doc,
+            path_doc:   doc.path_doc
+            }
+        });
+        }
+
+        await t.commit();
+
+        res.status(201).json({
+        message: "Surat Keluar berhasil diarsipkan secara manual",
+        data: surat,
+        });
+    } catch (error) {
+        console.error(error);
+        await t.rollback();
+        await Promise.all(uploadedFileIds.map(id => deleteFromGoogleDrive(id)));
+        if (error instanceof UniqueConstraintError) {
+                const field = error.errors[0]?.path; // nama kolom yang duplikat
+                const value = error.errors[0]?.value; // nilai yang menyebabkan duplikat
+                return res.status(400).json({
+                    message: `Nomor agenda "${value}" sudah terdaftar. Mohon gunakan no agenda yang berbeda.`,
+                    field
+                });
+                }
+        res.status(500).json({
+        message: "Gagal mengarsipkan Surat Keluar secara manual"
+        });
+    } finally {
+        [draftFile, ...allLampiran].forEach(f => {
+        if (f?.path && fs.existsSync(f.path)) fs.unlinkSync(f.path);
+        });
+    }
+    },
+
     getTrackingSuratKeluar: async (req, res) => {
         try {
         const id = req.params.id;
@@ -302,7 +527,7 @@ module.exports = {
             .includes(surat.status)) {
             timeline.push({
             key: 'waiting_number',
-            title: 'Menunggu Tanda Tangan',
+            title: 'Menunggu Nomor Surat',
             at: surat.updatedAt
             });
         }
@@ -907,5 +1132,68 @@ module.exports = {
       console.error(err);
       res.status(500).json({ message:'Gagal generate XLSX Surat Keluar' });
     }
+  },
+
+    getSuratKeluarDataTable: async (req, res) => {
+  try {
+    const draw = parseInt(req.query.draw) || 1;
+    const start = parseInt(req.query.start) || 0;
+    const length = parseInt(req.query.length) || 10;
+    const searchValue = req.query.search?.value || "";
+
+    const orderColumnIdx = req.query.order?.[0]?.column || 0;
+    const orderDir = req.query.order?.[0]?.dir || "asc";
+
+    // Kolom yang ditampilkan di tabel (harus urut)
+    const columns = [
+      "no_surat",
+      "tgl_surat",
+      "perihal",
+      "ditujukan",
+      "keterangan",
+      "status",
+      "sifat",
+      "jenis",
+      "tembusan",
+      "no_folder",
+      "createdAt",
+      "updatedAt",
+    ];
+
+    const orderBy = columns[orderColumnIdx] || "tgl_surat";
+
+    // Kondisi pencarian global
+    const where = searchValue
+      ? {
+          [Op.or]: [
+            { no_surat: { [Op.iLike]: `%${searchValue}%` } },
+            { perihal: { [Op.iLike]: `%${searchValue}%` } },
+            { ditujukan: { [Op.iLike]: `%${searchValue}%` } },
+            { keterangan: { [Op.iLike]: `%${searchValue}%` } },
+          ],
+        }
+      : {};
+
+    const totalRecords = await SuratKeluar.count();
+    const { count: filteredCount, rows } = await SuratKeluar.findAndCountAll({
+      where,
+      order: [[orderBy, orderDir]],
+      offset: start,
+      limit: length,
+      attributes: { exclude: []},
+    });
+
+    return res.json({
+      draw,
+      recordsTotal: totalRecords,
+      recordsFiltered: filteredCount,
+      data: rows,
+    });
+  } catch (error) {
+    console.error("Error in DataTables controller:", error);
+    return res.status(500).json({ message: "Gagal mengambil data surat keluar" });
   }
+}
+
+
 }

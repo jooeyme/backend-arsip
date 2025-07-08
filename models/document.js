@@ -61,20 +61,5 @@ module.exports = (sequelize, DataTypes) => {
     modelName: 'Document',
   });
 
-  // Hook: setelah dokumen dibuat
-  Document.addHook('afterCreate', async (instance, options) => {
-    await logPenambahanHook(instance, options, instance.documentId ,instance.documentType, 'Penambahan dokumen');
-  });
-
-  // Hook: sebelum dokumen diupdate
-  Document.addHook('beforeUpdate', async (instance, options) => {
-    await logPerubahanHook(instance, options, instance.documentId, instance.documentType, 'Perubahan dokumen');
-  });
-
-  // Hook: sebelum dokumen dihapus
-  Document.addHook('beforeDestroy', async (instance, options) => {
-    await logPenghapusanHook(instance, options, instance.documentId, instance.documentType, 'Penghapusan dokumen');
-  });
-
   return Document;
 };

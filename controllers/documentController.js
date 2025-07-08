@@ -2,7 +2,8 @@ const { Document, SuratMasuk, SuratKeluar, sequelize } = require('../models');
 const {uploadToGoogleDrive, deleteFromGoogleDrive} = require('../middleware/documentStorage')
 const fs = require('fs')
 const esClient = require('../config/esClient');
-const extractTextFromPDF = require('../middleware/ekstractText')
+const extractTextFromPDF = require('../middleware/ekstractText');
+const { where, Op } = require('sequelize');
 
 function extractFileId(url) {
     return url.split("/d/")[1]?.split("/")[0] || null;
@@ -11,25 +12,29 @@ module.exports = {
     getDashboardStats: async(req, res) => {
         try {
             const [
-                totalMasuk, 
-                totalKeluar, 
-                totalDokumen, 
-                totalDisposisi, 
-                totalDitolak
+                totalMasuk,
+                totalKeluar,
+                archivedMasuk,
+                archivedKeluar,
+                activeMasuk,
+                activeKeluar,
             ] = await Promise.all([
                 SuratMasuk.count(),
                 SuratKeluar.count(),
-                Document.count(),
-                SuratMasuk.count({ where: { status: "dispoisi" } }),
-                SuratMasuk.count({ where: { status: "ditolak" } }),
+                SuratMasuk.count({ where: { status: "diarsipkan" } }),
+                SuratKeluar.count({ where: { status: "archived" } }),
+                SuratMasuk.count({ where: { status: { [Op.ne]: 'diarsipkan' }}}),
+                SuratKeluar.count({ where: { status: { [Op.ne]: 'archibed' }}})
             ]);
+
+             const archivedTotal = archivedMasuk + archivedKeluar;
+             const activesTotal = activeKeluar + activeMasuk;
 
             res.status(200).json({
                 masuk: totalMasuk,
                 keluar: totalKeluar,
-                dokumen: totalDokumen,
-                disposisi: totalDisposisi,
-                ditolak: totalDitolak,
+                arsip: archivedTotal,
+                active: activesTotal
             });
         } catch (error) {
             console.error("Gagal mengambil statistik dashboard", error);
@@ -54,36 +59,18 @@ module.exports = {
         const fileId = extractFileId(fileUrl);
 
         try {
-            const { no_agenda_masuk, no_agenda_keluar } = req.body;
+            const { documentType, documentId, type_doc } = req.body;
 
             // Pastikan surat masuk atau surat keluar ada sebelum menyimpan dokumen
-            let no_agenda;
-            let index;
-            if (no_agenda_masuk) {
-                no_agenda= no_agenda_masuk;
-                index = "surat_masuk";
-                const suratMasuk = await SuratMasuk.findOne({ where: { no_agenda_masuk: no_agenda_masuk } });
-                if (!suratMasuk) {
-                    return res.status(404).json({ message: "Surat Masuk not found" });
-                }
-            } else if (no_agenda_keluar) {
-                no_agenda = no_agenda_keluar;
-                index = "surat_keluar";
-                const suratKeluar = await SuratKeluar.findOne({ where: { no_agenda_keluar: no_agenda_keluar } });
-                if (!suratKeluar) {
-                    return res.status(404).json({ message: "Surat Keluar not found" });
-                }
-            } else {
-                return res.status(404).json({ message: "Agenda not Found"})
-            }
+            
             
 
             // Simpan data dokumen ke database
             const document = await Document.create({
-                no_agenda_masuk: no_agenda_masuk || null,
-                no_agenda_keluar: no_agenda_keluar || null,
+                documentType: documentType,
+                documentId: documentId,
                 name_doc: file.originalname,
-                type_doc: file.mimetype,
+                type_doc: type_doc,
                 path_doc: fileUrl
             }, {
                 transaction: t,
@@ -93,18 +80,81 @@ module.exports = {
                 }
             });
 
-            await esClient.index({
+            if (documentType === 'SuratMasuk') {
+                const no_agenda= documentId;
+                const index = "surat_masuk";
+                const surat = await SuratMasuk.findOne({ where: { id: documentId } });
+        
+
+                await esClient.index({
                 index: index,
-                id: `${no_agenda}-${document.id}`,
+                id: `${surat.no_agenda_masuk}-${no_agenda}`,
                 body: {
-                    no_agenda: no_agenda,
-                    name_doc: document.name_doc,
-                    type_doc: document.type_doc,
-                    path_doc: document.path_doc,
+                    id:         surat.id,
+                    no_agenda_masuk: surat.no_agenda_masuk,
+                    tgl_terima: surat.tgl_terima,
+                    no_surat:   surat.no_surat,
+                    tgl_surat:  surat.tgl_surat,
+                    perihal:    surat.perihal,
+                    asal_surat:  surat.asal_surat,
+                    keterangan: surat.keterangan,
+                    status:     surat.status,
+                    sifat:      surat.sifat,
+                    lampiran:    surat.lampiran, 
+                    jenis:      surat.jenis,
+                    penerima: surat.penerima,
+                    tembusan:   surat.tembusan,
+                    no_folder:  surat.no_folder,
+                    createdAt:  surat.createdAt,
                     content: fileContent,
-                    createdAt: document.createdAt,
+                },
+                });
+                if (!surat) {
+                    return res.status(404).json({ message: "Surat Masuk not found" });
+                }
+            } else {
+                const no_agenda = docx.documentId;
+                const index = "surat_keluar";
+                const surat = await SuratKeluar.findOne({ where: { id: documentId } });
+                
+                
+                await esClient.index({
+                index: "surat_keluar",
+                id: `${surat.no_surat}-${no_agenda}`,
+                body: {
+                    id:         surat.id.toString(),
+                    no_surat:   surat.no_surat,
+                    tgl_surat:  surat.tgl_surat,
+                    perihal:    surat.perihal,
+                    ditujukan:  surat.ditujukan,
+                    keterangan: surat.keterangan,
+                    status:     surat.status,
+                    sifat:      surat.sifat,
+                    lampiran:   surat.lampiran || [],
+                    jenis:      surat.jenis,
+                    tembusan:   surat.tembusan,
+                    no_folder:  surat.no_folder,
+                    createdAt:  surat.createdAt,
+                    content: fileContent,
                 },
             });
+                if (!surat) {
+                    return res.status(404).json({ message: "Surat Keluar not found" });
+                }
+            }  
+
+            // await esClient.index({
+            //     index: index,
+            //     id: `${no_agenda}-${document.id}`,
+            //     body: {
+            //         no_agenda: no_agenda,
+            //         name_doc: document.name_doc,
+            //         type_doc: document.type_doc,
+            //         path_doc: document.path_doc,
+            //         content: fileContent,
+            //         createdAt: document.createdAt,
+            //     },
+            // });
 
             await t.commit(); // Commit transaksi jika semuanya berhasil
             
@@ -205,36 +255,75 @@ module.exports = {
             let no_agenda;
             let id_surat;
             let index;
-            if (docx.no_agenda_masuk) {
-                no_agenda= docx.no_agenda_masuk;
+            let surat;
+            if (docx.documentType === 'SuratMasuk') {
+                no_agenda= docx.documentId;
                 index = "surat_masuk";
-                const suratMasuk = await SuratMasuk.findOne({ where: { no_agenda_masuk: docx.no_agenda_masuk } });
-                id_surat = suratMasuk.id;
-                if (!suratMasuk) {
+                const surat = await SuratMasuk.findOne({ where: { id: docx.documentId } });
+                id_surat = surat.id;
+
+                await esClient.index({
+                index: index,
+                id: `${surat.no_agenda_masuk}-${no_agenda}`,
+                body: {
+                    id:         surat.id,
+                    no_agenda_masuk: surat.no_agenda_masuk,
+                    tgl_terima: surat.tgl_terima,
+                    no_surat:   surat.no_surat,
+                    tgl_surat:  surat.tgl_surat,
+                    perihal:    surat.perihal,
+                    asal_surat:  surat.asal_surat,
+                    keterangan: surat.keterangan,
+                    status:     surat.status,
+                    sifat:      surat.sifat,
+                    lampiran:    surat.lampiran, 
+                    jenis:      surat.jenis,
+                    penerima: surat.penerima,
+                    tembusan:   surat.tembusan,
+                    no_folder:  surat.no_folder,
+                    createdAt:  surat.createdAt,
+                    content: fileContent,
+                },
+                });
+                if (!surat) {
                     return res.status(404).json({ message: "Surat Masuk not found" });
                 }
-            } else if (docx.no_agenda_keluar) {
-                no_agenda = docx.no_agenda_keluar;
+            } else {
+                no_agenda = docx.documentId;
                 index = "surat_keluar";
-                const suratKeluar = await SuratKeluar.findOne({ where: { no_agenda_keluar: docx.no_agenda_keluar } });
-                id_surat = suratKeluar.id;
-                if (!suratKeluar) {
+                const surat = await SuratKeluar.findOne({ where: { id: docx.documentId } });
+                id_surat = surat.id;
+                
+                await esClient.index({
+                index: "surat_keluar",
+                id: `${surat.no_surat}-${no_agenda}`,
+                body: {
+                    id:         surat.id.toString(),
+                    no_surat:   surat.no_surat,
+                    tgl_surat:  surat.tgl_surat,
+                    perihal:    surat.perihal,
+                    ditujukan:  surat.ditujukan,
+                    keterangan: surat.keterangan,
+                    status:     surat.status,
+                    sifat:      surat.sifat,
+                    lampiran:   surat.lampiran || [],
+                    jenis:      surat.jenis,
+                    tembusan:   surat.tembusan,
+                    no_folder:  surat.no_folder,
+                    createdAt:  surat.createdAt,
+                    content: fileContent,
+                },
+            });
+                if (!surat) {
                     return res.status(404).json({ message: "Surat Keluar not found" });
                 }
-            } else {
-                return res.status(404).json({ message: "Agenda not Found"})
-            }        
+            }    
 
             
-            await esClient.delete({
-                index: index,
-                id: `${no_agenda}-${docx.id}`,
-            });   
-            
+           
 
             const updatedDocs = await Document.update({
                 name_doc: file.originalname,
-                type_doc: file.mimetype,
                 path_doc: fileUrl,
             }, {
                 where: { id: id },
@@ -245,19 +334,7 @@ module.exports = {
                 }
             });
 
-
-            await esClient.index({
-                index: index,
-                id: `${no_agenda}-${id}`,
-                body: {
-                    no_agenda: no_agenda,
-                    name_doc: file.originalname,
-                    type_doc: file.mimetype,
-                    path_doc: fileUrl,
-                    content: fileContent,
-                    createdAt: new Date(), // Bisa diganti ke updatedAt jika mau
-                },
-            });
+            
 
             await t.commit();
 

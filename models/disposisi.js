@@ -40,6 +40,10 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.STRING,
       allowNull: false
     },
+    ditugaskan: {
+      type: DataTypes.STRING,
+      allowNull: true
+    },
     ket_disposisi: DataTypes.STRING,
     status: {
       type: DataTypes.STRING,

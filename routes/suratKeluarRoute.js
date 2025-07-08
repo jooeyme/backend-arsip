@@ -17,6 +17,15 @@ router.post(
   suratKeluarController.uploadSigned
 );
 
+router.post(
+  '/archive', auth.authenticate,
+  upload.fields([
+    { name: "dokumen_utama", maxCount: 1 },
+    { name: "lampiran", maxCount: 5 }
+  ]),
+  suratKeluarController.uploadSuratKeluarArchived
+);
+router.get('/dataTables', suratKeluarController.getSuratKeluarDataTable);
 router.get('/dashboard', auth.authenticate, suratKeluarController.getDashboardSuratKeluar);
 router.get('/:id/track', suratKeluarController.getTrackingSuratKeluar);
 router.get('/all', suratKeluarController.getAllSuratKeluar);

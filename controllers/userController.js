@@ -1,36 +1,7 @@
-const { where } = require("sequelize");
+const { where, Op } = require("sequelize");
 const { User } = require("../models");
 
-
 module.exports = {
-    // createUser: async(req, res) => {
-    //     try {
-    //         const {
-    //             name,
-    //             email,
-    //             password,
-    //             role
-    //         } = req.body;
-
-    //         const result = await User.create({
-    //             name: name,
-    //             email: email,
-    //             password: password,
-    //             role: role
-    //         });
-
-    //         res.status(200).json({
-    //             message: "User created successfully",
-    //             data: result
-    //         });
-    //     } catch (error) {
-    //         console.error(error);
-    //         res.status(500).json({
-    //             message: "User creation failed",
-    //         });
-    //     }
-    // },
-
     getProfile: async (req, res) => {
     try {
         // Pastikan middleware auth sudah menyetel req.userData
@@ -81,6 +52,11 @@ module.exports = {
         try {
             const result = await User.findAll({
                 attributes: [ "id","nama_lengkap", "username"],
+                where: {
+                    role: {
+                        [Op.ne]: "super_admin" // Tidak sama dengan 'super_admin'
+                    }
+                }
             });
 
             res.status(200).json({
@@ -118,13 +94,35 @@ module.exports = {
         } catch (error) {
             console.error(error);
             res.status(500).json({
-                message: `Error getting user with id ${id}`
+                message: `Error getting user with id`
             })
         }
     },
 
     updateUser: async(req, res) => {
+        const { id } = req.params;
+        const { nama_lengkap, username, jabatan, role } = req.body;
 
+        try {
+            // Cari user berdasarkan ID
+            const user = await User.findByPk(id);
+            if (!user) {
+            return res.status(404).json({ message: 'User tidak ditemukan' });
+            }
+
+            // Update data user
+            await user.update({
+            nama_lengkap,
+            username,
+            jabatan,
+            role
+            });
+
+            res.status(200).json({ message: 'User berhasil diperbarui', data: user });
+        } catch (error) {
+            console.error('Gagal update user:', error);
+            res.status(500).json({ message: 'Terjadi kesalahan saat update user' });
+        }
     },
 
     deleteUser: async(req, res) => {
@@ -159,6 +157,8 @@ module.exports = {
             })
         }
 
-    }
+    },
+
+    
 
 }

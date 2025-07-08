@@ -19,6 +19,7 @@ module.exports = {
                 no_agenda,
                 tindakan,
                 diteruskan,
+                ditugaskan,
                 ket_disposisi,
             } = req.body;
 
@@ -55,6 +56,7 @@ module.exports = {
                 tindakan: tindakan,
                 dibuat: dibuat,
                 diteruskan: diteruskan,
+                ditugaskan: ditugaskan,
                 ket_disposisi: ket_disposisi,
                 status: status,
                 urutan: urutan

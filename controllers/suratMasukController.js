@@ -1,11 +1,12 @@
-const { SuratMasuk, Document, Disposisi, sequelize, SuratKeluar, User, Recipient } = require('../models');
+const { SuratMasuk, Document, Disposisi, sequelize, SuratKeluar, User, KlasifikasiSurat } = require('../models');
 const {uploadToGoogleDrive, deleteFromGoogleDrive} = require('../middleware/documentStorage');
 const fs = require('fs');
-const { Op } = require('sequelize');
+const { Op, UniqueConstraintError  } = require('sequelize');
 const esClient = require('../config/esClient');
 const extractTextFromPDF = require('../middleware/ekstractText');
 const { Parser } = require('json2csv');
 const { buildWorksheet } = require('../helpers/buildWorkSheet')
+const { generateNoSuratMasuk } = require('../helpers/generateNoSurat');
 const ExcelJS = require('exceljs');
 
 function extractFileId(url) {
@@ -105,6 +106,7 @@ module.exports = {
             const track = [];
 
             track.push({ 
+                key: 'diterima',
                 event: 'Surat Diterima',
                 timestamp: surat.createdAt,
                 aktor: "Administrasi",
@@ -114,6 +116,7 @@ module.exports = {
 
             disposisiList.forEach(d => {
                 track.push({
+                    key: 'didisposisikan',
                 event:   `Disposisi ${d.urutan} Dibuat`,
                 aktor: d.dibuat,
                 timestamp: d.createdAt,
@@ -122,6 +125,7 @@ module.exports = {
 
                 if (d.waktu_dibaca) {
                 track.push({
+                    key: 'didisposisikan',
                     event:     `Disposisi ${d.urutan} Dibaca`,
                     aktor: d.diteruskan,
                     timestamp: d.waktu_dibaca,
@@ -131,6 +135,7 @@ module.exports = {
 
                 if (d.waktu_diproses) {
                 track.push({
+                    key: 'diproses',
                     event:     `Disposisi ${d.urutan} Diproses`,
                     aktor: d.diteruskan,
                     timestamp: d.waktu_diproses,
@@ -140,6 +145,7 @@ module.exports = {
 
                 if (d.waktu_selesai) {
                 track.push({
+                    key: 'selesai',
                     event:     `Disposisi ${d.urutan} Selesai`,
                     aktor: d.diteruskan,
                     timestamp: d.waktu_selesai,
@@ -150,6 +156,7 @@ module.exports = {
         // Event status suratMasuk berubah menjadi 'diarsipkan'
             if (surat.status === 'diarsipkan') {
                 track.push({
+                    key: 'diarsipkan',
                 event: 'Surat Diarsipkan',
                 aktor: "Kepala Departemen", 
                 timestamp: surat.updatedAt,
@@ -185,9 +192,36 @@ module.exports = {
                         bool:{
                             should: [
                                 {
+                                    term: {
+                                        perihal: {
+                                            value: query.trim(),
+                                            boost: 5
+                                        }
+                                    }
+                                },
+                                 {
+                                    prefix: {
+                                    "no_agenda_masuk": {
+                                        value: query.trim().toUpperCase(),  // normalisasi jika perlu
+                                        boost: 3
+                                    }
+                                    }
+                                },
+                                {
+                                    prefix: {
+                                    "no_surat": {
+                                        value: query.trim().toUpperCase(),  // normalisasi jika perlu
+                                        boost: 3
+                                    }
+                                    }
+                                },
+                                {
                                     multi_match: {
                                         query: query,
-                                        fields: ["no_agenda", "name_doc", "type_doc", "content"],
+                                        fields: [
+                                            "keterangan", 
+                                            "content^2",
+                                        ],
                                         type: "best_fields", // Autocomplete
                                         operator: "AND",
                                         fuzziness: "AUTO",
@@ -198,27 +232,43 @@ module.exports = {
                                     match_phrase_prefix: { // untuk autocomplete prefix
                                     content: {
                                         query,
-                                        slop: 2,           // agak longgar
                                         max_expansions: 50
                                     }
                                     }
                                 }                         
                             ],
                                 minimum_should_match: 1, 
-                        }, 
+                        },
                     },
-                    highlight: {                 // tambahkan highlight untuk UI
-                        pre_tags: ["<mark>"],
-                        post_tags: ["</mark>"],
-                        fields: {
-                            content: { fragment_size: 150, number_of_fragments: 1 },
-                            name_doc: {}
-                        }
-                    }
+                    highlight: {
+                            pre_tags: ["<mark>"],
+                            post_tags: ["</mark>"],
+                            fields: {
+                                no_agenda_masuk: {},
+                                no_surat: {},
+                                perihal: {
+                                    fragment_size: 80,
+                                    number_of_fragments: 1
+                                },
+                                content: {
+                                    fragment_size: 100,
+                                    number_of_fragments: 1
+                                },
+                                keterangan: {}
+                            },
                 },
-            });
+                }
+        });
+
+            const hits = result.hits.hits.map((hit) => ({
+                id: hit._id,
+                score: hit._score,
+                source: hit._source,
+                highlight: hit.highlight || {}
+                }));
+
     
-            res.status(200).json({ results: result.hits.hits });
+            res.status(200).json({ results: hits });
         } catch (error) {
             console.error(error);
             res.status(500).json({ message: "Error searching surat" });
@@ -237,7 +287,6 @@ module.exports = {
             const lampiranNames = (files.lampiran || []).map(f => f.originalname);
 
             const {
-                no_agenda_masuk,
                 tgl_terima,
                 no_surat,
                 tgl_surat,
@@ -247,16 +296,23 @@ module.exports = {
                 jenis,
                 sifat,
                 tembusan,
-                
+                klasId
             } = req.body;
             let { penerimaIds } = req.body;
             const status = 'diterima'; 
             const penerima = 'user'
+
+            const klas = await KlasifikasiSurat.findByPk(klasId);
+            if (!klas) {
+                return res.status(400).json({
+                    message: "klasifikasi surat not found"
+                });
+            }
             
-            console.log(req.body)
+            const newNo_agenda = await generateNoSuratMasuk(klas.kode);
 
             const surat = await SuratMasuk.create({
-                no_agenda_masuk: no_agenda_masuk,
+                no_agenda_masuk: newNo_agenda,
                 tgl_terima: tgl_terima,
                 no_surat: no_surat,
                 tgl_surat: tgl_surat,
@@ -317,7 +373,7 @@ module.exports = {
                             keterangan: surat.keterangan,
                             status:     surat.status,
                             sifat:      surat.sifat,
-                            lampiran:   surat.lampiran || [],
+                            lampiran:    surat.lampiran, 
                             jenis:      surat.jenis,
                             penerima: surat.penerima,
                             tembusan:   surat.tembusan,
@@ -366,6 +422,14 @@ module.exports = {
             console.error(error.message);
             await t.rollback();
             await Promise.all(uploadedFileIds.map(id => deleteFromGoogleDrive(id)));
+            if (error instanceof UniqueConstraintError) {
+                const field = error.errors[0]?.path; // nama kolom yang duplikat
+                const value = error.errors[0]?.value; // nilai yang menyebabkan duplikat
+                return res.status(400).json({
+                    message: `Nomor agenda "${value}" sudah terdaftar. Mohon gunakan no agenda yang berbeda.`,
+                    field
+                });
+                }
             res.status(500).json({
                 message: "error creating SuratMasuk"
             });
@@ -594,11 +658,12 @@ module.exports = {
 
     getDashboardSuratMasuk: async (req, res, next) => {
         try {
-            const { role, id: userId } = req.userData;
+            const { role, id } = req.userData;
 
             // mapping role → status array
             const statusMap = {
-                administrasi:      ['waiting_to_archive'],
+                administrasi:      ['didisposisikan','waiting_to_archive'],
+                ktu: ['didisposisikan'],
                 kadep:             ['diterima', 'selesai'],
                 sekretaris:        ['diterima', 'selesai'],
             };
@@ -610,7 +675,7 @@ module.exports = {
                 order: []
             };
 
-            if (role === 'administrasi' || role === 'kadep' || role === 'sekretaris') {
+            if (role === 'administrasi' || role === 'kadep' || role === 'sekretaris' || role === 'ktu') {
                 options.where.status = { [Op.in]: statusMap[role] };
                 // ordering: admin by tgl_terima, kadep/sekr by tgl_surat
                 options.order = role === 'administrasi'
@@ -622,8 +687,8 @@ module.exports = {
                 model: Disposisi,
                 as: 'disposisi',
                 where: {
-                    diteruskan: userId.toString(),
-                    status:     'didisposisikan'
+                    diteruskan: id.toString(),
+                    status: 'didisposisikan'
                 },
                 required: true
                 });
@@ -643,7 +708,7 @@ module.exports = {
         const t = await sequelize.transaction();
         try {
             const {id} = req.params;
-            const { data } = req.body
+            const data = req.body
 
             const surat = await SuratMasuk.findByPk(id);
             if (!surat) {
@@ -808,10 +873,14 @@ module.exports = {
                 return res.status(404).json({ message: `SuratMasuk with id ${id} not found` });
               }
 
+              const id_surat = result.id;
               const noAgenda = result.no_agenda_masuk;
 
               const documents = await Document.findAll({
-                where: { documentId: noAgenda }
+                where: { 
+                    documentType: 'SuratMasuk',
+                    documentId: id_surat 
+                }
               });
              
               // Hapus dari Google Drive & Elasticsearch
@@ -834,7 +903,7 @@ module.exports = {
   
             // Hapus dokumen dari database
             await Document.destroy({
-                where: { documentId: noAgenda },
+                where: { documentId: id_surat },
                 transaction: t,
                 individualHooks: true,
                 context: {

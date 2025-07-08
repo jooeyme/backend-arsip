@@ -71,15 +71,15 @@ module.exports = (sequelize, DataTypes) => {
   });
 
   SuratKeluar.addHook('beforeUpdate', async (instance, options) => {
-    await logPerubahanHook(instance, options, 'keluar', 'Perubahan Surat Keluar');
+    await logPerubahanHook(instance, options, instance.id, 'keluar', 'Perubahan Surat Keluar');
   });
   
   SuratKeluar.addHook('beforeDestroy', async (instance, options) => {
-    await logPenghapusanHook(instance, options, 'keluar', 'Penghapusan Surat Keluar');
+    await logPenghapusanHook(instance, options, instance.id, 'keluar', 'Penghapusan Surat Keluar');
   });
   
   SuratKeluar.addHook('afterCreate', async (instance, options) => {
-    await logPenambahanHook(instance, options, 'keluar', 'Penambahan Surat Keluar');
+    await logPenambahanHook(instance, options, instance.id, 'keluar', 'Penambahan Surat Keluar');
   });
 
   return SuratKeluar;

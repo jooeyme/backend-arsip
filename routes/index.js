@@ -9,6 +9,8 @@ const LogRoute = require("./logRoute");
 const KlasifikasiRoute = require("./klasifikasiRoute");
 const ReviewRoute = require('./reviewRoute');
 const tujuanRoutes = require('./tujuanSuratRoute');
+const tembusanRoutes = require('./tembusanSuratRoute');
+const pegawaiRoutes = require('./pegawaiRoute');
 
 router.get('/health-check', (req, res) => {
     res.status(200).json({
@@ -25,5 +27,7 @@ router.use('/log', LogRoute);
 router.use('/klasifikasi-surat', KlasifikasiRoute);
 router.use('/review', ReviewRoute);
 router.use('/tujuan', tujuanRoutes);
+router.use('/tembusan', tembusanRoutes);
+router.use('/pegawai', pegawaiRoutes);
 
 module.exports = router;

@@ -1,15 +1,9 @@
 const { getSocketInstance } = require('../helpers/socket');
 
-const ambilNoAgenda = (instance, jenisSurat) => {
-  if (jenisSurat === 'masuk') return instance.no_agenda_masuk;
-  if (jenisSurat === 'keluar') return instance.no_agenda_keluar;
-  return null;
-};
-
 module.exports = {
   logPenambahanHook: async (instance, options, suratId, jenisSurat, keterangan) => {
     const LogPerubahan = instance.sequelize.models.LogPerubahan;
-    const noAgenda = ambilNoAgenda(instance, jenisSurat);
+    
 
     const logData = {
       suratId,

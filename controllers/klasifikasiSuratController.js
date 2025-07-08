@@ -4,7 +4,7 @@ module.exports = {
     getAllKlasifikasi: async (req, res) => {
         try {
           const data = await KlasifikasiSurat.findAll({
-            attributes: ["id", "deskripsi"],
+            attributes: ["id", "deskripsi", "kode"],
           });
           res.json(data);
         } catch (error) {
@@ -36,6 +36,37 @@ module.exports = {
             })
         }
       },
+
+      deleteKlasifikasi: async(req, res) => {
+        try {
+            const {id} = req.params;
+            const result = await KlasifikasiSurat.findOne({
+                where: {
+                    id: id,
+                }
+            });
+
+            if (result) {
+                await KlasifikasiSurat.destroy({
+                    where: {
+                        id: id
+                    }
+                });
+                res.status(200).json({
+                    message: `KlasifikasiSurat with id ${id} deleted successfully`
+                  })
+            } else {
+                return res.status(404).json({
+                    message: `KlasifikasiSurat with id ${id} not found`
+                });
+            }
+        } catch (error) {
+            console.error(error);
+            res.status(500).json({
+                message: `error deleting KlasifikasiSurat with id`
+            });
+        }
+    },
 
       
 
